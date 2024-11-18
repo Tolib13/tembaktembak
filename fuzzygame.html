@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Game Fuzzy Logic - Tembak Target</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f0f0f0;
+        text-align: center;
+      }
+      canvas {
+        border: 3px solid #333;
+        border-radius: 10px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+        background-image: url("city-background.jpg"); /* Tambahkan background perkotaan */
+        background-size: cover;
+        background-position: center;
+        cursor: crosshair;
+      }
+      .controls {
+        margin: 20px;
+        padding: 20px;
+        background-color: #fff;
+        border-radius: 10px;
+        box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+      }
+      button {
+        padding: 10px 20px;
+        font-size: 16px;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        margin: 5px;
+      }
+      button:hover {
+        background-color: #45a049;
+      }
+      .game-info {
+        display: flex;
+        justify-content: space-around;
+        margin: 10px;
+      }
+      .level-indicator {
+        font-size: 18px;
+        font-weight: bold;
+        color: #333;
+      }
+      .level-up-notification,
+      .win-notification {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        display: none;
+        z-index: 1000;
+      }
+      .win-notification {
+        background-color: rgba(0, 255, 0, 0.8);
+        font-size: 24px;
+        padding: 30px;
+      }
+      .level-up-notification button {
+        margin-top: 10px;
+        background-color: #4caf50;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+      .level-up-notification button:hover {
+        background-color: #45a049;
+      }
+      @keyframes fadeInOut {
+        0% {
+          opacity: 0;
+        }
+        50% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
+      .pause-menu {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(0, 0, 0, 0.9);
+        color: white;
+        padding: 30px;
+        border-radius: 10px;
+        display: none;
+        z-index: 1000;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Game Tembak Target dengan Fuzzy Logic</h1>
+    <div class="controls">
+      <button onclick="mulaiGame()">Mulai Game</button>
+      <button onclick="resetGame()">Reset Game</button>
+      <button onclick="togglePause()">Pause</button>
+      <div class="game-info">
+        <p>Level: <span id="level">1</span></p>
+        <p>Skor: <span id="skor">0</span></p>
+        <p>Waktu: <span id="waktu">60</span> detik</p>
+      </div>
+    </div>
+    <div id="levelUpNotification" class="level-up-notification">
+      Selamat! Anda naik ke Level <span id="newLevel"></span>
+      <br />
+      <button onclick="lanjutkanGame()">Lanjutkan Game</button>
+    </div>
+    <div id="winNotification" class="win-notification">
+      Selamat! Anda telah menyelesaikan semua level!<br />
+      Anda adalah pemenang!
+    </div>
+    <div id="pauseMenu" class="pause-menu">
+      <h2>Game Paused</h2>
+      <button onclick="resumeGame()">Resume</button>
+      <button onclick="resetGame()">Reset</button>
+    </div>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <audio id="shootSound" src="https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3"></audio>
+    <audio id="hitSound" src="https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3"></audio>
+    <audio id="missSound" src="https://assets.mixkit.co/active_storage/sfx/2573/2573-preview.mp3"></audio>
+    <audio id="birdHitSound" src="https://assets.mixkit.co/active_storage/sfx/2574/2574-preview.mp3"></audio>
+    <audio id="levelUpSound" src="https://assets.mixkit.co/active_storage/sfx/2575/2575-preview.mp3"></audio>
+    <audio id="gameOverSound" src="https://assets.mixkit.co/active_storage/sfx/2576/2576-preview.mp3"></audio>
+    <audio id="bgMusic" src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" loop></audio>
+
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+      let skor = 0;
+      let level = 1;
+      let waktuTersisa = 60;
+      let gameInterval;
+      let targetInterval;
+      let birdInterval;
+      let targetSize = 20;
+      let gameActive = false;
+      let lastClickTime = 0;
+      let timerSpeed = 1000; // Timer default 1 detik
+      const MAX_LEVEL = 5; // Level maksimal
+      let isPaused = false;
+
+      // Audio elements
+      const shootSound = document.getElementById("shootSound");
+      const hitSound = document.getElementById("hitSound");
+      const missSound = document.getElementById("missSound");
+      const birdHitSound = document.getElementById("birdHitSound");
+      const levelUpSound = document.getElementById("levelUpSound");
+      const gameOverSound = document.getElementById("gameOverSound");
+      const bgMusic = document.getElementById("bgMusic");
+
+      // Posisi target
+      let targetX = Math.random() * (canvas.width - 50);
+      let targetY = Math.random() * (canvas.height - 50);
+
+      // Array untuk menyimpan multiple burung dan pesawat
+      let birds = [
+        {
+          x: 0,
+          y: Math.random() * (canvas.height - 50),
+          speed: 3,
+          size: 50,
+        },
+        {
+          x: 0,
+          y: Math.random() * (canvas.height - 50),
+          speed: 4,
+          size: 50,
+        },
+        {
+          x: 0,
+          y: Math.random() * (canvas.height - 50),
+          speed: 5,
+          size: 50,
+        },
+      ];
+
+      let planes = []; // Array untuk pesawat
+
+      // Array untuk mobil
+      let cars = [
+        {
+          x: canvas.width,
+          y: Math.random() * (canvas.height - 30),
+          speed: -2,
+          width: 60,
+          height: 30,
+        },
+        {
+          x: canvas.width,
+          y: Math.random() * (canvas.height - 30),
+          speed: -3,
+          width: 60,
+          height: 30,
+        },
+        {
+          x: canvas.width,
+          y: Math.random() * (canvas.height - 30),
+          speed: -4,
+          width: 60,
+          height: 30,
+        },
+      ];
+
+      function togglePause() {
+        if (!gameActive) return;
+
+        isPaused = !isPaused;
+        const pauseMenu = document.getElementById("pauseMenu");
+
+        if (isPaused) {
+          // Hentikan semua interval dan musik
+          clearInterval(gameInterval);
+          clearInterval(targetInterval);
+          clearInterval(birdInterval);
+          bgMusic.pause();
+          pauseMenu.style.display = "block";
+
+          // Tambahkan text PAUSED di canvas
+          ctx.font = "48px Arial";
+          ctx.fillStyle = "white";
+          ctx.textAlign = "center";
+          ctx.fillText("PAUSED", canvas.width / 2, canvas.height / 2);
+        } else {
+          resumeGame();
+        }
+      }
+
+      function resumeGame() {
+        if (!gameActive) return;
+
+        isPaused = false;
+        document.getElementById("pauseMenu").style.display = "none";
+
+        // Restart semua interval
+        gameInterval = setInterval(updateWaktu, timerSpeed);
+        birdInterval = setInterval(() => {
+          gerakkanObstacle();
+          gambarTarget();
+        }, 50);
+
+        // Mulai musik lagi
+        bgMusic.play();
+
+        // Restart target interval based on level
+        clearInterval(targetInterval);
+        if (level === 1) {
+          targetInterval = setInterval(() => {
+            if (Date.now() - lastClickTime >= 10000) pindahTarget();
+          }, 10000);
+        } else if (level === 2) {
+          targetInterval = setInterval(() => {
+            if (Date.now() - lastClickTime >= 5000) pindahTarget();
+          }, 5000);
+        } else if (level === 3) {
+          targetInterval = setInterval(() => {
+            if (Date.now() - lastClickTime >= 3000) pindahTarget();
+          }, 3000);
+        } else {
+          targetInterval = setInterval(pindahTarget, 6000);
+        }
+
+        // Refresh tampilan
+        gambarTarget();
+      }
+
+      function lanjutkanGame() {
+        document.getElementById("levelUpNotification").style.display = "none";
+        level++;
+
+        if (level > MAX_LEVEL) {
+          showWinNotification();
+          bgMusic.pause();
+          bgMusic.currentTime = 0;
+          levelUpSound.play();
+          return;
+        }
+
+        skor = 0;
+        waktuTersisa = level === MAX_LEVEL ? 30 : 60;
+        targetSize = Math.max(5, targetSize - 3);
+        birds.forEach((bird) => (bird.speed += 1));
+
+        // Tambah mobil baru setiap naik level
+        cars.push({
+          x: canvas.width,
+          y: Math.random() * (canvas.height - 30),
+          speed: -(2 + Math.random() * 3),
+          width: 60,
+          height: 30,
+        });
+
+        // Double obstacles for level 3 and above
+        if (level >= 3) {
+          // Double birds
+          const newBirds = birds.map((bird) => ({
+            x: 0,
+            y: Math.random() * (canvas.height - 50),
+            speed: bird.speed,
+            size: bird.size,
+          }));
+          birds = birds.concat(newBirds);
+
+          // Double cars
+          const newCars = cars.map((car) => ({
+            x: canvas.width,
+            y: Math.random() * (canvas.height - 30),
+            speed: car.speed,
+            width: car.width,
+            height: car.height,
+          }));
+          cars = cars.concat(newCars);
+
+          // Double planes if they exist
+          if (planes.length > 0) {
+            const newPlanes = planes.map((plane) => ({
+              x: 0,
+              y: Math.random() * (canvas.height - 50),
+              speed: plane.speed,
+            }));
+            planes = planes.concat(newPlanes);
+          }
+        }
+
+        if (level >= 4) {
+          timerSpeed = Math.max(500, timerSpeed - 200);
+          clearInterval(gameInterval);
+          gameInterval = setInterval(updateWaktu, timerSpeed);
+        }
+
+        // Update interval target berdasarkan level
+        clearInterval(targetInterval);
+        if (level === 2) {
+          targetInterval = setInterval(() => {
+            if (Date.now() - lastClickTime >= 5000) {
+              pindahTarget();
+            }
+          }, 5000);
+          planes.push({
+            x: 0,
+            y: Math.random() * (canvas.height - 50),
+            speed: 4,
+          });
+        } else if (level === 3) {
+          targetInterval = setInterval(() => {
+            if (Date.now() - lastClickTime >= 3000) {
+              pindahTarget();
+            }
+          }, 3000);
+          birds.forEach((bird) => (bird.speed *= 1.5));
+          planes.forEach((plane) => (plane.speed *= 1.5));
+        } else if (level >= 4) {
+          targetInterval = setInterval(pindahTarget, 6000);
+        }
+
+        isPaused = false;
+        gameInterval = setInterval(updateWaktu, timerSpeed);
+        birdInterval = setInterval(() => {
+          gerakkanObstacle();
+          gambarTarget();
+        }, 50);
+        bgMusic.play();
+        updateDisplay();
+      }
+
+      // Fungsi untuk menampilkan notifikasi naik level
+      function showLevelUpNotification(newLevel) {
+        const notification = document.getElementById("levelUpNotification");
+        document.getElementById("newLevel").textContent = newLevel;
+        notification.style.display = "block";
+        clearInterval(gameInterval);
+        clearInterval(targetInterval);
+        clearInterval(birdInterval);
+        bgMusic.pause();
+      }
+
+      // Fungsi untuk menampilkan notifikasi menang
+      function showWinNotification() {
+        const winNotif = document.getElementById("winNotification");
+        winNotif.style.display = "block";
+        setTimeout(() => {
+          winNotif.style.display = "none";
+          resetGame();
+        }, 5000);
+      }
+
+      // Fungsi fuzzy untuk menghitung akurasi tembakan
+      function hitungAkurasi(jarakX, jarakY) {
+        let jarak = Math.sqrt(jarakX * jarakX + jarakY * jarakY);
+
+        if (jarak < targetSize) {
+          return 1; // Sangat akurat
+        } else if (jarak < targetSize * 2.5) {
+          return 0.7; // Cukup akurat
+        } else if (jarak < targetSize * 5) {
+          return 0.3; // Kurang akurat
+        } else {
+          return 0; // Tidak akurat
+        }
+      }
+
+      // Fungsi untuk memindahkan target secara otomatis
+      function pindahTarget() {
+        targetX = Math.random() * (canvas.width - 50);
+        targetY = Math.random() * (canvas.height - 50);
+        gambarTarget();
+      }
+
+      // Fungsi untuk menggambar pesawat
+      function gambarPesawat(plane) {
+        ctx.beginPath();
+        ctx.moveTo(plane.x, plane.y);
+        ctx.lineTo(plane.x + 60, plane.y);
+        ctx.lineTo(plane.x + 40, plane.y - 20);
+        ctx.lineTo(plane.x, plane.y);
+        ctx.fillStyle = "#808080";
+        ctx.fill();
+        ctx.closePath();
+      }
+
+      // Fungsi untuk menggambar mobil
+      function gambarMobil(car) {
+        ctx.fillStyle = "#FF0000";
+        ctx.fillRect(car.x, car.y, car.width, car.height);
+
+        // Roda mobil
+        ctx.fillStyle = "#000000";
+        ctx.beginPath();
+        ctx.arc(car.x + 15, car.y + car.height, 6, 0, Math.PI * 2);
+        ctx.arc(car.x + car.width - 15, car.y + car.height, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Jendela mobil
+        ctx.fillStyle = "#87CEEB";
+        ctx.fillRect(car.x + 15, car.y + 5, 20, 10);
+      }
+
+      // Fungsi untuk menggerakkan burung dan pesawat
+      function gerakkanObstacle() {
+        birds.forEach((bird) => {
+          bird.x += bird.speed;
+          if (bird.x > canvas.width) {
+            bird.x = -bird.size;
+            bird.y = Math.random() * (canvas.height - 50);
+          }
+        });
+
+        if (level >= 2) {
+          planes.forEach((plane) => {
+            plane.x += plane.speed;
+            if (plane.x > canvas.width) {
+              plane.x = -60;
+              plane.y = Math.random() * (canvas.height - 50);
+            }
+          });
+        }
+
+        // Gerakkan mobil
+        cars.forEach((car) => {
+          car.x += car.speed;
+          if (car.x + car.width < 0) {
+            car.x = canvas.width;
+            car.y = Math.random() * (canvas.height - car.height);
+          }
+        });
+      }
+
+      // Gambar burung
+      function gambarBurung() {
+        birds.forEach((bird) => {
+          ctx.beginPath();
+          ctx.moveTo(bird.x, bird.y);
+          ctx.bezierCurveTo(bird.x + bird.size / 3, bird.y - bird.size / 3, bird.x + (2 * bird.size) / 3, bird.y - bird.size / 3, bird.x + bird.size, bird.y);
+          ctx.bezierCurveTo(bird.x + (2 * bird.size) / 3, bird.y + bird.size / 3, bird.x + bird.size / 3, bird.y + bird.size / 3, bird.x, bird.y);
+          ctx.fillStyle = "#4169E1";
+          ctx.fill();
+          ctx.closePath();
+        });
+      }
+
+      // Fungsi untuk menggambar api (level >3)
+      function gambarApi() {
+        ctx.beginPath();
+        ctx.moveTo(targetX - 10, targetY + 20);
+        ctx.quadraticCurveTo(targetX, targetY + 40, targetX + 10, targetY + 20);
+        ctx.quadraticCurveTo(targetX + 5, targetY + 30, targetX, targetY + 25);
+        ctx.quadraticCurveTo(targetX - 5, targetY + 30, targetX - 10, targetY + 20);
+        ctx.fillStyle = "#FF4500";
+        ctx.fill();
+        ctx.closePath();
+      }
+
+      // Gambar target
+      function gambarTarget() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (level > 3) {
+          // Background gradient untuk level >3
+          let gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+          gradient.addColorStop(0, "#4a0000");
+          gradient.addColorStop(1, "#000");
+          ctx.fillStyle = gradient;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // Gambar lingkaran target
+        ctx.beginPath();
+        ctx.arc(targetX, targetY, targetSize, 0, Math.PI * 2);
+        ctx.fillStyle = level % 2 === 0 ? "#ff4444" : "#ff0000";
+        ctx.fill();
+
+        // Gambar lingkaran luar
+        ctx.beginPath();
+        ctx.arc(targetX, targetY, targetSize * 1.5, 0, Math.PI * 2);
+        ctx.strokeStyle = level > 3 ? "#ff0" : "#000";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        if (level > 3) {
+          gambarApi();
+        }
+
+        // Gambar burung
+        gambarBurung();
+
+        // Gambar pesawat jika level >= 2
+        if (level >= 2) {
+          planes.forEach((plane) => gambarPesawat(plane));
+        }
+
+        // Gambar mobil
+        cars.forEach((car) => gambarMobil(car));
+
+        // Tampilkan teks PAUSED jika game di-pause
+        if (isPaused) {
+          ctx.font = "48px Arial";
+          ctx.fillStyle = "white";
+          ctx.textAlign = "center";
+          ctx.fillText("PAUSED", canvas.width / 2, canvas.height / 2);
+        }
+      }
+
+      function mulaiGame() {
+        if (!gameActive) {
+          gameActive = true;
+          isPaused = false;
+          waktuTersisa = level === MAX_LEVEL ? 30 : 60;
+          skor = 0;
+          level = 1;
+          targetSize = 20;
+          timerSpeed = 1000;
+          planes = [];
+          cars = [
+            {
+              x: canvas.width,
+              y: Math.random() * (canvas.height - 30),
+              speed: -2,
+              width: 60,
+              height: 30,
+            },
+            {
+              x: canvas.width,
+              y: Math.random() * (canvas.height - 30),
+              speed: -3,
+              width: 60,
+              height: 30,
+            },
+            {
+              x: canvas.width,
+              y: Math.random() * (canvas.height - 30),
+              speed: -4,
+              width: 60,
+              height: 30,
+            },
+          ];
+          updateDisplay();
+          bgMusic.play();
+
+          gameInterval = setInterval(updateWaktu, timerSpeed);
+
+          // Set interval berdasarkan level
+          if (level === 1) {
+            targetInterval = setInterval(() => {
+              if (Date.now() - lastClickTime >= 10000) {
+                pindahTarget();
+              }
+            }, 10000);
+          } else if (level === 2) {
+            targetInterval = setInterval(() => {
+              if (Date.now() - lastClickTime >= 5000) {
+                pindahTarget();
+              }
+            }, 5000);
+            // Tambah pesawat
+            planes.push({
+              x: 0,
+              y: Math.random() * (canvas.height - 50),
+              speed: 4,
+            });
+          } else if (level === 3) {
+            targetInterval = setInterval(() => {
+              if (Date.now() - lastClickTime >= 3000) {
+                pindahTarget();
+              }
+            }, 3000);
+            birds.forEach((bird) => (bird.speed *= 1.5));
+            planes.forEach((plane) => (plane.speed *= 1.5));
+          } else {
+            targetInterval = setInterval(pindahTarget, 6000); // 6 detik untuk level 4 & 5
+          }
+
+          birdInterval = setInterval(() => {
+            gerakkanObstacle();
+            gambarTarget();
+          }, 50);
+
+          gambarTarget();
+        }
+      }
+
+      function resetGame() {
+        // Hentikan semua interval
+        clearInterval(gameInterval);
+        clearInterval(targetInterval);
+        clearInterval(birdInterval);
+
+        // Reset semua variabel ke nilai awal
+        gameActive = false;
+        isPaused = false;
+        waktuTersisa = 60;
+        skor = 0;
+        level = 1;
+        targetSize = 20;
+        lastClickTime = 0;
+        timerSpeed = 1000;
+
+        // Reset posisi target
+        targetX = Math.random() * (canvas.width - 50);
+        targetY = Math.random() * (canvas.height - 50);
+
+        // Reset arrays
+        planes = [];
+        cars = [
+          {
+            x: canvas.width,
+            y: Math.random() * (canvas.height - 30),
+            speed: -2,
+            width: 60,
+            height: 30,
+          },
+          {
+            x: canvas.width,
+            y: Math.random() * (canvas.height - 30),
+            speed: -3,
+            width: 60,
+            height: 30,
+          },
+          {
+            x: canvas.width,
+            y: Math.random() * (canvas.height - 30),
+            speed: -4,
+            width: 60,
+            height: 30,
+          },
+        ];
+
+        // Reset birds
+        birds = birds.map((bird) => ({
+          x: 0,
+          y: Math.random() * (canvas.height - 50),
+          speed: 3,
+          size: 50,
+        }));
+
+        // Reset audio
+        bgMusic.pause();
+        bgMusic.currentTime = 0;
+
+        // Reset UI
+        document.getElementById("pauseMenu").style.display = "none";
+        document.getElementById("levelUpNotification").style.display = "none";
+        document.getElementById("winNotification").style.display = "none";
+
+        // Update display dan gambar ulang
+        updateDisplay();
+        gambarTarget();
+      }
+
+      function updateWaktu() {
+        if (waktuTersisa > 0) {
+          waktuTersisa--;
+          document.getElementById("waktu").textContent = waktuTersisa;
+
+          // Cek skor untuk naik level
+          if (skor >= 1500) {
+            levelUpSound.play();
+            showLevelUpNotification(level + 1);
+          }
+        } else {
+          gameOverSound.play();
+          bgMusic.pause();
+          bgMusic.currentTime = 0;
+          alert(`Game Over! Skor Akhir: ${skor}`);
+          resetGame();
+        }
+      }
+
+      function updateDisplay() {
+        document.getElementById("skor").textContent = skor;
+        document.getElementById("level").textContent = level;
+        document.getElementById("waktu").textContent = waktuTersisa;
+      }
+
+      // Fungsi tembak
+      function tembak(event) {
+        if (!gameActive || isPaused) return;
+
+        shootSound.play();
+
+        let mouseX = event.clientX - canvas.getBoundingClientRect().left;
+        let mouseY = event.clientY - canvas.getBoundingClientRect().top;
+
+        let jarakX = Math.abs(mouseX - targetX);
+        let jarakY = Math.abs(mouseY - targetY);
+
+        // Cek tembakan ke obstacle
+        let hitObstacle = birds.some((bird) => {
+          let jarakKeObstacle = Math.sqrt(Math.pow(mouseX - (bird.x + bird.size / 2), 2) + Math.pow(mouseY - bird.y, 2));
+          return jarakKeObstacle < bird.size;
+        });
+
+        if (level >= 2) {
+          hitObstacle =
+            hitObstacle ||
+            planes.some((plane) => {
+              let jarakKePesawat = Math.sqrt(Math.pow(mouseX - (plane.x + 30), 2) + Math.pow(mouseY - plane.y, 2));
+              return jarakKePesawat < 30;
+            });
+        }
+
+        // Cek tembakan ke mobil
+        hitObstacle =
+          hitObstacle ||
+          cars.some((car) => {
+            return mouseX >= car.x && mouseX <= car.x + car.width && mouseY >= car.y && mouseY <= car.y + car.height;
+          });
+
+        if (hitObstacle) {
+          birdHitSound.play();
+          skor -= 50;
+          updateDisplay();
+          return;
+        }
+
+        let akurasi = hitungAkurasi(jarakX, jarakY);
+
+        if (akurasi > 0) {
+          hitSound.play();
+          // Tambah skor berdasarkan akurasi
+          if (akurasi === 1) {
+            skor += 150; // Sangat akurat
+          } else if (akurasi === 0.7) {
+            skor += 100; // Cukup akurat
+          } else if (akurasi === 0.3) {
+            skor += 50; // Kurang akurat
+          }
+        } else {
+          missSound.play();
+          skor -= 25; // Pengurangan skor jika meleset
+        }
+
+        updateDisplay();
+
+        lastClickTime = Date.now();
+
+        targetX = Math.random() * (canvas.width - 50);
+        targetY = Math.random() * (canvas.height - 50);
+
+        gambarTarget();
+      }
+
+      // Event listener untuk keyboard
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "p" || event.key === "P") {
+          togglePause();
+        }
+      });
+
+      // Inisialisasi game
+      gambarTarget();
+
+      // Event listener untuk mouse
+      canvas.addEventListener("click", tembak);
+    </script>
+  </body>
+</html>
